@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ms. Lee's Reading Buddy</title>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --deep-pink: #ec4899;
+            --soft-pink: #fbcfe8;
+            --sky-blue: #0ea5e9;
+        }
+
+        body {
+            font-family: 'Lexend', sans-serif;
+            background-color: #fff1f2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .app-card {
+            background: white;
+            width: 100%;
+            max-width: 650px;
+            padding: 35px;
+            border-radius: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.05);
+            text-align: center;
+        }
+
+        .avatar {
+            width: 80px; height: 80px;
+            background: #ffe0bd;
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            border: 3px solid var(--deep-pink);
+            position: relative;
+            overflow: hidden;
+        }
+        .hair { background: #333; width: 100%; height: 35%; position: absolute; top: 0; }
+
+        #story-display {
+            font-size: 1.8rem;
+            line-height: 3.2rem;
+            text-align: left;
+            padding: 25px;
+            background: #fafafa;
+            border-radius: 25px;
+            min-height: 280px;
+            margin-bottom: 25px;
+            border: 2px solid #f1f5f9;
+        }
+
+        .word {
+            display: inline-block;
+            margin-right: 10px;
+            padding: 2px 8px;
+            border-radius: 8px;
+            color: #374151;
+            transition: background-color 0.1s ease;
+        }
+
+        .highlight-active {
+            background-color: var(--deep-pink) !important;
+            color: white !important;
+            transform: scale(1.1);
+            font-weight: bold;
+        }
+
+        .controls-panel {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 25px;
+            margin-bottom: 20px;
+        }
+
+        input[type=range] {
+            width: 100%;
+            accent-color: var(--deep-pink);
+            cursor: pointer;
+        }
+
+        .btn-container { display: flex; gap: 15px; justify-content: center; }
+
+        button {
+            padding: 16px 30px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-family: 'Lexend', sans-serif;
+        }
+
+        .btn-gen { background: var(--sky-blue); color: white; }
+        .btn-read { background: var(--deep-pink); color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="app-card">
+    <div class="avatar"><div class="hair"></div></div>
+    <h2 style="color: var(--deep-pink); margin-top:0;">Reading Buddy Pro 🇨🇦</h2>
+
+    <div class="controls-panel">
+        <div style="margin-bottom: 8px; font-weight: bold; color: #64748b;">
+            Reading Speed: <span id="speed-label">50%</span>
+        </div>
+        <input type="range" id="speed-slider" min="20" max="100" step="20" value="50">
+    </div>
+
+    <div id="story-display">Click "New Story" to begin!</div>
+
+    <div class="btn-container">
+        <button id="gen-btn" class="btn-gen">🪄 New Story</button>
+        <button id="read-btn" class="btn-read" disabled>📢 Read Aloud</button>
+    </div>
+</div>
+
+<script>
+    const API_KEY = "YOUR_GEMINI_API_KEY_HERE"; 
+    const display = document.getElementById('story-display');
+    const genBtn = document.getElementById('gen-btn');
+    const readBtn = document.getElementById('read-btn');
+    const speedSlider = document.getElementById('speed-slider');
+    const speedLabel = document.getElementById('speed-label');
+    
+    let storyWords = [];
+    let sentences = [];
+    const synth = window.speechSynthesis;
+    let isReading = false;
+
+    speedSlider.oninput = () => speedLabel.innerText = speedSlider.value + "%";
+
+    // --- STORY LOGIC ---
+    async function fetchNewStory() {
+        genBtn.disabled = true;
+        display.innerHTML = "✨ Writing a new story...";
+        const prompt = "Write a fun 80-word story for Grade 2. Simple words. Canadian spelling.";
+
+        try {
+            let storyText = "";
+            if (!API_KEY || API_KEY.includes("YOUR_GEMINI")) {
+                const mocks = [
+                    "The brown bear went to the river to find his favourite fish. He saw a small bird with a bright red colour. The bird sang a happy song. It was a cold morning in Canada. The bear wore a warm scarf. He found a big fish and shared it with his friend. They sat on a log and looked at the blue water. Learning to read is a fun adventure every single day.",
+                    "A brave cat went to the moon in a red rocket. She took some yummy cheese for a snack. The moon was very quiet and white. The cat jumped high because there was no weight. She saw the bright stars in the sky. It was a long way from her home. She felt like a hero in space. Every book you read is a trip to the moon!"
+                ];
+                storyText = mocks[Math.floor(Math.random() * mocks.length)];
+            } else {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                storyText = data.candidates[0].content.parts[0].text;
+            }
+            return storyText;
+        } catch (e) {
+            return "Oh no! Try again, eh?";
+        } finally { genBtn.disabled = false; }
+    }
+
+    genBtn.addEventListener('click', async () => {
+        stopReading();
+        const fullText = await fetchNewStory();
+        
+        // Prepare words for display
+        storyWords = fullText.split(/\s+/);
+        display.innerHTML = storyWords.map((w, i) => `<span class="word" id="word-${i}">${w}</span>`).join(" ");
+        
+        // Prepare sentences for the speech engine
+        sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
+        readBtn.disabled = false;
+    });
+
+    function stopReading() {
+        isReading = false;
+        synth.cancel();
+        readBtn.disabled = false;
+        document.querySelectorAll('.word').forEach(el => el.classList.remove('highlight-active'));
+    }
+
+    // --- HYBRID ENGINE ---
+    function playStory() {
+        isReading = true;
+        readBtn.disabled = true;
+        let globalWordIndex = 0;
+
+        const speakSentence = (sentenceIndex) => {
+            if (sentenceIndex >= sentences.length || !isReading) {
+                stopReading();
+                return;
+            }
+
+            const utterance = new SpeechSynthesisUtterance(sentences[sentenceIndex]);
+            utterance.rate = parseFloat(speedSlider.value) / 100;
+            
+            const voices = synth.getVoices();
+            utterance.voice = voices.find(v => v.lang.includes('en-CA') || v.name.includes('Female')) || voices[0];
+
+            utterance.onboundary = (event) => {
+                if (event.name === 'word' && isReading) {
+                    const localText = sentences[sentenceIndex].substring(0, event.charIndex);
+                    // Filter out empty strings to get accurate count
+                    const localWordCount = localText.trim() === "" ? 0 : localText.trim().split(/\s+/).length;
+                    
+                    const currentId = globalWordIndex + localWordCount;
+                    
+                    document.querySelectorAll('.word').forEach(el => el.classList.remove('highlight-active'));
+                    const el = document.getElementById(`word-${currentId}`);
+                    if (el) {
+                        el.classList.add('highlight-active');
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            };
+
+            utterance.onend = () => {
+                if (!isReading) return;
+                // Move the offset forward by the number of words in the finished sentence
+                globalWordIndex += sentences[sentenceIndex].trim().split(/\s+/).length;
+                
+                // 500ms pause for the kid to breathe between sentences
+                setTimeout(() => speakSentence(sentenceIndex + 1), 500);
+            };
+
+            synth.speak(utterance);
+        };
+
+        speakSentence(0);
+    }
+
+    readBtn.addEventListener('click', playStory);
+    window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
+</script>
+
+</body>
+</html>
