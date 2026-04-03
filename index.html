@@ -34,26 +34,53 @@
         }
 
         .avatar {
-            width: 80px; height: 80px;
+            width: 60px; height: 60px;
             background: #ffe0bd;
             border-radius: 50%;
-            margin: 0 auto 15px;
+            margin: 0 auto 10px;
             border: 3px solid var(--deep-pink);
             position: relative;
             overflow: hidden;
         }
         .hair { background: #333; width: 100%; height: 35%; position: absolute; top: 0; }
 
-        #story-display {
+        .story-box-container {
+            position: relative;
+            margin-bottom: 25px;
+            min-height: 320px;
+        }
+
+        #parent-input {
+            width: 100%;
+            height: 320px;
+            font-size: 1.6rem;
+            line-height: 2.8rem;
+            padding: 25px;
+            border: 3px dashed var(--soft-pink);
+            border-radius: 25px;
+            font-family: 'Lexend', sans-serif;
+            resize: none;
+            outline: none;
+            color: #374151;
+            background: #fafafa;
+            box-sizing: border-box;
+        }
+
+        #karaoke-display {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #fafafa;
+            border: 3px solid #f1f5f9;
+            border-radius: 25px;
+            padding: 25px;
             font-size: 1.8rem;
             line-height: 3.2rem;
             text-align: left;
-            padding: 25px;
-            background: #fafafa;
-            border-radius: 25px;
-            min-height: 280px;
-            margin-bottom: 25px;
-            border: 2px solid #f1f5f9;
+            display: none;
+            box-sizing: border-box;
+            overflow-y: auto;
+            pointer-events: none;
         }
 
         .word {
@@ -79,13 +106,9 @@
             margin-bottom: 20px;
         }
 
-        input[type=range] {
-            width: 100%;
-            accent-color: var(--deep-pink);
-            cursor: pointer;
-        }
+        input[type=range] { width: 100%; accent-color: var(--deep-pink); cursor: pointer; }
 
-        .btn-container { display: flex; gap: 15px; justify-content: center; }
+        .btn-container { display: flex; gap: 15px; justify-content: center; flex-wrap: wrap; }
 
         button {
             padding: 16px 30px;
@@ -100,6 +123,7 @@
 
         .btn-gen { background: var(--sky-blue); color: white; }
         .btn-read { background: var(--deep-pink); color: white; }
+        .btn-stop { background: #64748b; color: white; display: none; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
@@ -116,19 +140,25 @@
         <input type="range" id="speed-slider" min="20" max="100" step="20" value="50">
     </div>
 
-    <div id="story-display">Click "New Story" to begin!</div>
+    <div class="story-box-container">
+        <textarea id="parent-input" placeholder="Type a story here, or click 'New AI Story' to get one of Ms. Lee's 50 favourites!"></textarea>
+        <div id="karaoke-display"></div>
+    </div>
 
     <div class="btn-container">
-        <button id="gen-btn" class="btn-gen">🪄 New Story</button>
-        <button id="read-btn" class="btn-read" disabled>📢 Read Aloud</button>
+        <button id="gen-btn" class="btn-gen">🪄 New AI Story</button>
+        <button id="read-btn" class="btn-read">📢 Read Aloud</button>
+        <button id="stop-btn" class="btn-stop">🛑 Stop</button>
     </div>
 </div>
 
 <script>
     const API_KEY = "YOUR_GEMINI_API_KEY_HERE"; 
-    const display = document.getElementById('story-display');
+    const inputArea = document.getElementById('parent-input');
+    const display = document.getElementById('karaoke-display');
     const genBtn = document.getElementById('gen-btn');
     const readBtn = document.getElementById('read-btn');
+    const stopBtn = document.getElementById('stop-btn');
     const speedSlider = document.getElementById('speed-slider');
     const speedLabel = document.getElementById('speed-label');
     
@@ -136,33 +166,85 @@
     let sentences = [];
     const synth = window.speechSynthesis;
     let isReading = false;
+    let lastMockIndex = -1;
+
+    // --- MS LEE'S 50 MOCK STORIES ---
+    const msLeeStories = [
+        "Benny the Beaver wanted to build the biggest dam in the creek. He found a sturdy birch branch. He chewed and chewed until the tree fell down. His tail went slap, slap, slap on the water. All his friends came to see his hard work. You are a master builder said the loon. Benny felt very proud. He ate a snack of green leaves and went to sleep in his cozy lodge.",
+        "Barnaby the Bear woke up from a long nap. He was very hungry. He looked inside an old log and found some sweet honey. A little bee buzzed around his nose. Don't worry bee Barnaby said. I will only take a little bit. He used his big paws to scoop the honey. It tasted like summer. After his snack he walked to the river to catch a shiny silver fish.",
+        "Sophie lost her red mitten in the deep snow. A small squirrel found it near a pine tree. He thought it was a soft bed. He jumped inside and felt very warm. Later a bunny hopped by. Can I come in asked the bunny. They both wiggled into the woolly mitten. When Sophie found it the next day she saw two tiny tails sticking out. She smiled and let them keep it.",
+        "A big moose walked into the playground. He wanted to try the slide. He was too large to fit! Then he saw the bright yellow swings. He tried to sit but his antlers got stuck in the chains. The children laughed and brought him some crunchy carrots. The moose shook his head and the swings fell off. He trotted back into the forest for a long nap under the maple trees.",
+        "Nanook is a white husky with bright blue eyes. He loves to pull the sled across the ice. One day the sled got stuck in a snowdrift. Nanook pulled with all his might. His tail wagged like a flag. Good boy shouted his friend. They zoomed over the hills and saw the green northern lights in the sky. Nanook barked at the stars. He is the fastest dog in the whole North.",
+        "Blue Jays are very noisy birds. One sat on my porch today. He had bright blue feathers and a grey tummy. He was looking for a peanut. I tossed a nut onto the wooden deck. The bird hopped down and grabbed it with his beak. He flew up to a tall cedar tree to eat. He chirped a loud song to say thank you. I love watching the birds in my backyard.",
+        "Wanda the Whale swam in the cold ocean. She saw a big boat with people on it. She wanted to say hello. Wanda took a deep breath and jumped high out of the water. Splash! The people got very wet. They cheered and took many photos. Wanda blew a big fountain of water out of her blowhole. She dived deep down to find her friends for a game of tag.",
+        "Rocky the Raccoon has a black mask on his face. He looks like a little robber. At night he creeps into the garden. He looks for tasty scraps in the green bin. He found a piece of cheese and a cold fry. Rocky washed his food in a puddle of water. When the sun came up he climbed high into a hollow tree. He curled his bushy tail and went to sleep.",
+        "Barnaby the Bee flew into a garden full of red tulips. He landed on a soft petal. Buzz buzz he sang. He gathered yellow dust on his fuzzy legs. It was hard work! He flew to a blue flower next. The garden smelled so sweet. Soon his tummy was full of nectar. He flew back to the hive to help make honey. The Queen Bee was very happy with his hard work.",
+        "Cora the Crow saw a shiny silver coin on the sidewalk. She wanted it for her nest. She dived down but a cat was nearby. Cora waited in the oak tree. She made a loud caw to trick the cat. The cat ran away to hide. Cora zoomed down and picked up the coin. It looked beautiful in the sun. She tucked it into her nest made of twigs and soft moss.",
+        "Leo put on his skates and his heavy jersey. It was time for hockey! He stepped onto the cold white ice. He held his stick tight. Pass the puck shouted Sarah. Leo skated fast and took a shot. The puck went zip into the net. Goal the crowd cheered. His team did a happy dance on the ice. After the game they all went for hot chocolate with extra marshmallows at the snack bar.",
+        "Maya had a new red bicycle. She wore her blue helmet and pads. Today was the big race around the park. She pedalled as fast as she could. Her legs felt like jelly. She saw her mom waving a flag at the finish line. Maya took a deep breath and zoomed past the oak tree. She came in second place! She got a shiny silver medal and a cold juice box.",
+        "The grass was wet from the rain. Tim kicked the soccer ball across the field. He tripped and fell in the mud. His white shorts turned brown! Tim laughed and got back up. He chased the ball and passed it to Kim. She kicked it hard. The ball sailed past the goalie. Everyone cheered! Even though they were muddy they had the best time. Playing outside with friends is always a lot of fun.",
+        "The pond turned into thick ice in the winter. My dad helped me tie my skates. The ice was smooth and clear. I held his hand and took small steps. Soon I was gliding all by myself! I felt like a bird flying low. We saw a small fish frozen under the ice. It looked like it was sleeping. We skated until our noses were pink and our toes were very cold.",
+        "Today was my first day at the pool. The water looked very big and blue. I put on my goggles and my orange flippers. My teacher Sam showed us how to blow bubbles. I put my face in and went blub blub blub. It was funny! Then I practiced kicking my legs. I made a big splash. I am not afraid of the deep end anymore. I want to swim like a fast shark.",
+        "Ben and Lily built a house in the old maple tree. They used wood nails and a long rope. There is a secret ladder to climb up. Inside they have a soft rug and a box of books. They made a sign that says No Adults Allowed. They eat apple slices and tell funny stories. From the window they can see the whole neighbourhood. It is the best place to hide on a sunny afternoon.",
+        "Jake loves to play basketball in the driveway. He bounced the ball thump thump thump. He tried to throw it into the hoop. The ball hit the rim and bounced away. Jake did not give up. He tried again and again. Finally the ball went through the net. Swish! He did a little dance. His neighbour clapped from the porch. Jake wants to play for a big team when he grows up.",
+        "We played hide and seek in the backyard. I was the seeker. I closed my eyes and counted to twenty. Ready or not here I come! I looked behind the shed. I looked under the big bush. Suddenly I saw a pair of yellow sneakers behind the woodpile. I found you Sam I yelled. Sam laughed and ran to the base. It was his turn to count. I found a great spot in the tall grass.",
+        "It was a very windy Saturday. Dad and I took my diamond kite to the hill. The kite was bright purple with a long tail. I ran fast and let go of the string. The wind caught it and pulled it high. It looked like a tiny bird in the clouds. I had to hold on tight so it would not fly away. We watched it dance in the sky for an hour.",
+        "Emma got a skateboard for her birthday. It had green wheels and a cool sticker. She went to the park to practice. At first she fell down two times. She brushed the dirt off her knees. She tried again very slowly. By the end of the day she could roll down the small path. Look at me she cried. She felt like she was flying. She cannot wait to learn a trick tomorrow.",
+        "Grandma and I made chocolate chip cookies. We put flour sugar and butter in a big blue bowl. I got to stir the dough with a heavy spoon. It was very sticky! We added a whole bag of chocolate chips. Grandma put the tray in the oven. The kitchen smelled wonderful. When they were done the cookies were warm and crunchy. We ate them with cold milk while we looked at old photos.",
+        "Mom asked me to help in the garden. We planted tiny seeds in the brown dirt. I used my small green shovel. We planted carrots beans and big pumpkins. I gave them a drink of water with the hose. Plants need sun and water to grow Mom said. I saw a wiggly worm in the soil. I tucked him back in. I can't wait to eat a carrot that I grew all by myself.",
+        "It was raining hard outside. I could not go to the park. I felt a bit sad. Then Dad found a big cardboard box. We turned it into a spaceship! We used markers to draw buttons and a screen. I put on my bike helmet and hopped inside. Three two one blast off! I flew to the moon and back before lunch. The rain did not matter because I had a galaxy in my room.",
+        "My aunt has a new baby named Leo. He is very small and has tiny toes. He cries when he is hungry or tired. My aunt let me hold him on the sofa. I had to be very quiet and still. Leo grabbed my finger with his little hand. He smelled like baby powder. He made a funny face and fell fast asleep. I am going to be the best cousin and teach him how to play.",
+        "We went camping in the big woods. We slept in a green tent. At night we made a campfire. We roasted marshmallows on long sticks. Mine turned black because I put it in the flame! It was still gooey and sweet. We looked at the stars and listened to the owls. I heard a rustle in the bushes but it was just a little toad. Sleeping outside is a grand adventure.",
+        "Misty the cat went missing on Tuesday. We looked under the porch and in the garage. We called her name loudly. I felt very worried. Then I heard a soft meow from the closet. Misty was hiding inside an old boot! She looked very cozy. I gave her a bowl of milk and a pat on the head. I was so happy she was safe. Misty purred and rubbed against my leg.",
+        "Saturday is my favourite day because we go to the library. There are so many books to choose from! I like stories about dragons and space. The librarian showed me a book about a magic dog. I sat in a big soft chair and started to read. It was so quiet and peaceful. I checked out five books to take home. I will read them all under my covers with a flashlight tonight.",
+        "My room was a giant mess. There were toys on the rug and clothes on the chair. Mom said I had to clean it before I could go outside. I put my blocks in the blue bin. I folded my sweaters and put them in the drawer. I found my lost toy car under the bed! Now my room looks very neat. I feel much better when I can see the floor.",
+        "I woke up early on Sunday. I wanted to make breakfast for Dad. I got the bread and the toaster. I put two slices in and waited for them to pop. I put some yellow jam on the toast. I poured a glass of orange juice too. I brought it to his bed. Thank you little chef Dad said with a big smile. It was the best start to a very sunny day.",
+        "After dinner we all went for a walk. The sun was going down and the sky was pink. My dog Buster pulled on his leash. He wanted to chase a squirrel. We walked past the park and the school. My little brother found a smooth grey stone. He put it in his pocket. We saw our neighbour Mr. Jones watering his flowers. It was a lovely evening to be outside together.",
+        "I found an old top hat in the attic. When I put it on something strange happened. I started to float! My feet left the dusty floor. I floated over the boxes and near the window. I felt light as a feather. I grabbed a wooden beam to stay down. When I took the hat off I landed softly. I hid the hat under my bed. It will be our little secret for now.",
+        "I went to get my bike from the shed. Inside I saw a small green dragon! He was eating an old garden hose. He had tiny wings and a long tail. Are you lost I asked. The dragon puffed a little bit of smoke. He looked very friendly. I gave him an apple and he ate it in one bite. He curled up on a bag of soil and went to sleep.",
+        "One morning my toaster said Good morning! I dropped my spoon in surprise. I like my bread very brown the toaster said in a squeaky voice. I didn't know what to say. I gave it a slice of whole wheat bread. Delicious said the toaster. We talked about the weather while I ate my breakfast. It is much more fun to eat toast when your kitchen appliances have things to say.",
+        "I found a rolled up paper inside an old book. It was a map of our backyard! There was a red X near the big oak tree. I grabbed my shovel and ran outside. I dug a small hole near the roots. I hit something hard. It was a metal box! Inside there were three gold chocolate coins and a note. The note said Good job explorer! I wonder who put it there?",
+        "I built a robot out of tin cans and wire. I named him Bot. One night a shooting star flew past my window. Bot's eyes began to glow red! He started to walk across my desk. Clink clank clink. He helped me do my math homework. He was very good at adding big numbers. We stayed up late talking about outer space. Having a robot friend is the best thing ever.",
+        "I planted a bean I found in the park. The next day it had grown into a giant plant! It was taller than our house. I climbed up the thick green stalk. I could see over the trees and the river. At the very top there was a soft white cloud. I sat on the cloud and watched the planes fly by. It felt like a dream. Then I climbed down for dinner.",
+        "In my dream I saw a purple elephant. She was wearing a yellow hat and a striped scarf. She invited me to a tea party in the jungle. We drank tea out of big coconut shells. We ate cupcakes that tasted like bananas. The elephant told funny jokes that made me giggle. When I woke up I found a small purple feather on my pillow. I smiled and went back to sleep.",
+        "My grandma gave me an old rug for my room. When I sat on it and said Zoom it lifted off the floor! We flew out the open window. We soared over the city lights and the dark forest. The wind felt cool on my face. We flew all the way to the mountains and back. I tucked the rug under my bed. I will go on another trip tomorrow night.",
+        "I made a cape out of an old blue sheet. When I put it on I became invisible! My mom looked right at me but did not see me. I crept into the kitchen and took a cookie. The cookie looked like it was floating in the air! My dog barked at the floating cookie. I took the cape off and yelled Surprise! We all laughed. Being invisible is a very handy trick.",
+        "A mouse told me a secret. He said the moon is made of cheddar cheese. One night I built a rocket out of silver paper. I flew up to the moon to see for myself. I landed in a big yellow crater. I took a small bite of the ground. It was delicious cheese! I filled a bag with moon cheese to take home. The mouse was very happy when I shared it with him.",
+        "I had a new backpack and a sharp box of crayons. It was the first day of Grade 2! I felt a little bit nervous. My teacher Miss White had a kind smile. She showed me my desk. I sat next to a girl named Sarah. We drew pictures of our summer holidays. We played tag at recess and had apples for snack. I think I am going to love being in this class.",
+        "The snow was perfect for packing. My brother and I made three big balls. we stacked them up high. We used rocks for eyes and a carrot for a nose. I gave him my old blue scarf. He needs a hat said my brother. We found a bucket in the garage. Our snowman looked very handsome standing in the front yard. We hope he does not melt for a long time.",
+        "The leaves turned red orange and yellow. They fell from the maple trees like rain. My dad raked them into a giant pile. Can we jump in I asked. Dad nodded with a grin. We ran and jumped into the soft leaves. Crunch crunch crunch! It was so much fun. We hid under the leaves and waited for Mom to find us. Autumn is my favourite season of the year.",
+        "I made a volcano for the school science fair. I used clay paint and a little bottle. My dad helped me mix vinegar and baking soda. When I poured it in red bubbles came shooting out! It looked like real lava. Everyone in the gym said Wow! I won a blue ribbon for my hard work. I felt like a real scientist. I want to learn more about how things work.",
+        "The sun was very hot today. We went to the beach to cool down. I built a tall sandcastle with a moat. The water was cold but felt great. I found a pretty pink shell in the sand. I held it to my ear and heard the ocean. We ate sandwiches and juicy watermelon under a big umbrella. It was a perfect summer day. I never wanted to leave the beach.",
+        "Today was the spelling bee in my class. I had to spell neighbour and favourite. I practiced every night with my mom. When it was my turn my heart beat fast. I took a deep breath and said the letters slowly. That is correct said the teacher. I felt so happy. I got a small gold star on my shirt. Hard work pays off! I love learning new words every day.",
+        "It was almost Halloween. We went to the farm to pick a pumpkin. I found a very fat orange one. At home Dad cut off the top. I pulled out the gooey seeds with my hands. It felt slimy and funny! We carved a happy face with a big toothy grin. We put a small light inside. Our pumpkin looked wonderful glowing on the porch in the dark night.",
+        "I was a tree in the school play. I wore a brown shirt and green leaves on my arms. I had to stand very still on the stage. My friend Sam was a hopping bunny. He forgot his lines so I whispered them to him. He smiled and said them out loud. The parents all clapped at the end. Being on stage was exciting. I want to be a king next time!",
+        "Miss Green gave us big sheets of paper and jars of bright paint. I wanted to paint a forest. I mixed blue and yellow to make a dark green colour. I used a thin brush for the branches. I added some red dots for berries. My hands got very messy but my painting looked great. We hung them on the wall to dry. The classroom looked like a beautiful colourful garden.",
+        "Today is the last day of school. We are having a party with juice and popcorn. We cleaned out our desks and took our drawings home. I am going to miss my friends and Miss White. She gave us all a high-five. Have a great summer she said. I am excited to go to the park and swim in the lake. But I can't wait to come back for Grade 3!"
+    ];
 
     speedSlider.oninput = () => speedLabel.innerText = speedSlider.value + "%";
 
-    // --- STORY LOGIC ---
+    // --- LOGIC ---
     async function fetchNewStory() {
         genBtn.disabled = true;
-        display.innerHTML = "✨ Writing a new story...";
+        inputArea.value = "✨ Writing a new story...";
         const prompt = "Write a fun 80-word story for Grade 2. Simple words. Canadian spelling.";
 
         try {
-            let storyText = "";
             if (!API_KEY || API_KEY.includes("YOUR_GEMINI")) {
-                const mocks = [
-                    "The brown bear went to the river to find his favourite fish. He saw a small bird with a bright red colour. The bird sang a happy song. It was a cold morning in Canada. The bear wore a warm scarf. He found a big fish and shared it with his friend. They sat on a log and looked at the blue water. Learning to read is a fun adventure every single day.",
-                    "A brave cat went to the moon in a red rocket. She took some yummy cheese for a snack. The moon was very quiet and white. The cat jumped high because there was no weight. She saw the bright stars in the sky. It was a long way from her home. She felt like a hero in space. Every book you read is a trip to the moon!"
-                ];
-                storyText = mocks[Math.floor(Math.random() * mocks.length)];
-            } else {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-                });
-                const data = await res.json();
-                storyText = data.candidates[0].content.parts[0].text;
+                let newIndex;
+                do { newIndex = Math.floor(Math.random() * msLeeStories.length); } while (newIndex === lastMockIndex);
+                lastMockIndex = newIndex;
+                await new Promise(r => setTimeout(r, 600));
+                return msLeeStories[newIndex];
             }
-            return storyText;
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            const data = await res.json();
+            return data.candidates[0].content.parts[0].text;
         } catch (e) {
             return "Oh no! Try again, eh?";
         } finally { genBtn.disabled = false; }
@@ -170,28 +252,34 @@
 
     genBtn.addEventListener('click', async () => {
         stopReading();
-        const fullText = await fetchNewStory();
-        
-        // Prepare words for display
-        storyWords = fullText.split(/\s+/);
-        display.innerHTML = storyWords.map((w, i) => `<span class="word" id="word-${i}">${w}</span>`).join(" ");
-        
-        // Prepare sentences for the speech engine
-        sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
-        readBtn.disabled = false;
+        inputArea.value = await fetchNewStory();
     });
 
     function stopReading() {
         isReading = false;
         synth.cancel();
-        readBtn.disabled = false;
+        readBtn.style.display = "inline-block";
+        stopBtn.style.display = "none";
+        display.style.display = "none";
+        inputArea.style.visibility = "visible";
         document.querySelectorAll('.word').forEach(el => el.classList.remove('highlight-active'));
     }
 
-    // --- HYBRID ENGINE ---
     function playStory() {
+        const fullText = inputArea.value.trim();
+        if (!fullText) return;
+
         isReading = true;
-        readBtn.disabled = true;
+        readBtn.style.display = "none";
+        stopBtn.style.display = "inline-block";
+        
+        storyWords = fullText.split(/\s+/);
+        display.innerHTML = storyWords.map((w, i) => `<span class="word" id="word-${i}">${w}</span>`).join(" ");
+        display.style.display = "block";
+        inputArea.style.visibility = "hidden";
+        
+        sentences = fullText.match(/[^.!?]+[.!?]+/g) || [fullText];
+        
         let globalWordIndex = 0;
 
         const speakSentence = (sentenceIndex) => {
@@ -209,7 +297,6 @@
             utterance.onboundary = (event) => {
                 if (event.name === 'word' && isReading) {
                     const localText = sentences[sentenceIndex].substring(0, event.charIndex);
-                    // Filter out empty strings to get accurate count
                     const localWordCount = localText.trim() === "" ? 0 : localText.trim().split(/\s+/).length;
                     
                     const currentId = globalWordIndex + localWordCount;
@@ -225,10 +312,7 @@
 
             utterance.onend = () => {
                 if (!isReading) return;
-                // Move the offset forward by the number of words in the finished sentence
                 globalWordIndex += sentences[sentenceIndex].trim().split(/\s+/).length;
-                
-                // 500ms pause for the kid to breathe between sentences
                 setTimeout(() => speakSentence(sentenceIndex + 1), 500);
             };
 
@@ -238,7 +322,12 @@
         speakSentence(0);
     }
 
-    readBtn.addEventListener('click', playStory);
+    readBtn.addEventListener('click', () => {
+        synth.getVoices();
+        setTimeout(playStory, 50);
+    });
+    
+    stopBtn.addEventListener('click', stopReading);
     window.speechSynthesis.onvoiceschanged = () => synth.getVoices();
 </script>
 
